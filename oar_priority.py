@@ -74,9 +74,65 @@ def copy_and_rewrite(mods, mods_dir, out_dir, selected_mods, start_priority=1):
 
     return log_lines
 
+def find_priority_conflicts(mods_dir, selected_mods_ordered):
+    """
+    Проверяет выбранные моды на конфликты приоритетов анимаций.
+    Конфликт возникает, если мод, который идёт раньше по загрузке,
+    имеет приоритет ниже, чем мод, который идёт позже.
+    
+    :param mods_dir: путь к папке с модами
+    :param selected_mods_ordered: список выбранных модов в порядке загрузки (первый = первый в списке)
+    :return: список конфликтов [(mod_name, file_name, priority, load_index, expected_position)]
+    """
+    all_entries = []  # (mod_name, file_name, priority, load_index)
+
+    # собираем все JSON-файлы и их приоритеты
+    for load_index, mod in enumerate(selected_mods_ordered):
+        mod_path = os.path.join(mods_dir, mod)
+        if not os.path.exists(mod_path):
+            continue
+        jsons = collect_jsons(mod_path)
+        for _, _, file_name, data, priority in jsons:
+            all_entries.append((mod, file_name, priority, load_index))
+
+    # сортируем по priority
+    all_entries_sorted = sorted(all_entries, key=lambda x: x[2])
+
+    # ищем конфликты
+    conflicts = []
+    max_seen_load_index = -1
+    for mod, file_name, priority, load_index in all_entries_sorted:
+        if load_index < max_seen_load_index:
+            conflicts.append((mod, file_name, priority, load_index, max_seen_load_index))
+        else:
+            max_seen_load_index = max(max_seen_load_index, load_index)
+
+    return conflicts
+
+def highlight_conflicting_mods(window, conflicts, all_mods):
+    """
+    Подсвечивает моды, участвующие в конфликтах, в Listbox.
+    :param window: объект окна SG
+    :param conflicts: список конфликтов [(mod_name, file_name, priority, load_index, expected)]
+    :param all_mods: список всех модов, отображаемых в Listbox
+    """
+    conflicting_mods = set(mod for mod, *_ in conflicts)
+    
+    # Формируем список элементов для обновления Listbox:
+    # обычные моды остаются как есть, конфликтные помечаем звездочкой или другим символом
+    display_list = []
+    for mod in all_mods:
+        if mod in conflicting_mods:
+            display_list.append(f"⚠ {mod}")  # можно использовать любой символ
+        else:
+            display_list.append(mod)
+    
+    window["MODS"].update(display_list)
+
+
 # ==== UI ====
 def main():
-    sg.ChangeLookAndFeel("DarkGrey9")
+    sg.change_look_and_feel("DarkGrey9")
 
     LIST_HEIGHT = 20
     LOG_HEIGHT = 15
@@ -85,6 +141,7 @@ def main():
     layout = [
         [sg.Frame("Settings", [
             [sg.Text("MO2 Profile path:", size=(20,1)), sg.InputText(key="PROFILE", size=(INPUT_WIDTH,1)), sg.FolderBrowse("Browse")],
+            [sg.Text("MO2 Mods path:", size=(20,1)), sg.InputText(key="MODS_DIR", size=(INPUT_WIDTH,1),              default_text="If empty, default path will be used"), sg.FolderBrowse("Browse")],
             [sg.Text("Output path:", size=(20,1)), sg.InputText(key="OUTPUT_DIR", size=(INPUT_WIDTH,1)), sg.FolderBrowse("Browse")],
             [sg.Text("Start priority:", size=(20,1)), sg.InputText("1", key="START_PRIORITY", size=(10,1))],
             [sg.Button("Load mods", size=(20,1))]
@@ -95,7 +152,9 @@ def main():
         ], pad=(10,10), element_justification='left', expand_x=True)],
 
         [sg.Frame("Actions", [
-            [sg.Button("Run", button_color=("white","green"), size=(10,1)), sg.Button("Exit", size=(10,1))]
+            [sg.Button("Run", button_color=("white","green"), size=(10,1)), 
+            #  sg.Button("Check", button_color=("white","blue"), size=(10,1)), 
+             sg.Button("Exit", size=(10,1))]
         ], pad=(10,10), element_justification='center', expand_x=True)],
 
         [sg.Frame("Execution log", [
@@ -116,7 +175,11 @@ def main():
             profile = values["PROFILE"]
             modlist_file = os.path.join(profile, "modlist.txt")
             # правильный путь к папке mods рядом с profiles
-            mods_dir = os.path.abspath(os.path.join(profile, "..", "..", "mods"))
+            mods_dir_input = values["MODS_DIR"]
+            if mods_dir_input and os.path.exists(mods_dir_input):
+                mods_dir = mods_dir_input
+            else:
+                mods_dir = os.path.abspath(os.path.join(profile, "..", "..", "mods"))
             print(f"Folder for mods: {mods_dir}")
 
             if not os.path.exists(modlist_file):
@@ -151,6 +214,30 @@ def main():
             )
             window["LOG"].update(log_text)
             sg.popup(f"{len(mods)} OAR-mods loaded.")
+
+        if event == "Check":
+            selected = values["MODS"]
+            if not selected:
+                sg.popup_error("Mods are not selected!")
+                continue
+
+            conflicts = find_priority_conflicts(mods_dir, selected)
+            
+            # Лог
+            log_lines = []
+            if conflicts:
+                log_lines.append("Priority conflicts detected:")
+                for mod, file_name, priority, load_index, expected in conflicts:
+                    log_lines.append(f"- Mod {mod}, File {file_name}, Priority {priority}, "
+                                    f"Load order index {load_index} (should be >= {expected})")
+            else:
+                log_lines.append("No conflicts detected!")
+            
+            # Обновляем Multiline лог
+            window["LOG"].update("\n".join(log_lines))
+            
+            # Подсвечиваем конфликтующие моды в Listbox
+            highlight_conflicting_mods(window, conflicts, selected)
 
         if event == "Run":
             selected = values["MODS"]
