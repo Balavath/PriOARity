@@ -443,7 +443,7 @@ def main():
                 append_log(window, "No mapped folders to process. Aborting Run.")
                 continue
 
-            out_root = os.path.join(output_dir, "PriOARity_Vortex_Output")
+            out_root = os.path.join(output_dir, "PriOARity_Output")
             os.makedirs(out_root, exist_ok=True)
 
             log_lines = []
