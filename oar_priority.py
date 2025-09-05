@@ -20,18 +20,22 @@ def get_mod_order(modlist_file):
     return mods
 
 def is_oar_mod(mod_path):
-    """Проверяет, содержит ли мод OAR-анимации (несколько вариантов пути)."""
-    for subpath in OAR_SUBPATHS:
-        full_path = os.path.join(mod_path, subpath)
-        print(f"Check OAR: {full_path}")
-        if os.path.exists(full_path):
-            print("→ found!")
+    """Проверяет, содержит ли мод OAR-анимации (ищем OpenAnimationReplacer в meshes)."""
+    meshes_path = os.path.join(mod_path, "meshes")
+    if not os.path.exists(meshes_path):
+        return False
+
+    for root, dirs, _ in os.walk(meshes_path):
+        if "OpenAnimationReplacer" in dirs or "OpenAnimationReplacer" in root:
             return True
     return False
 
 def collect_jsons(mod_path):
     entries = []
     for root, _, files in os.walk(mod_path):
+        if "OpenAnimationReplacer" not in root:
+            continue  # пропускаем нерелевантные json-ы
+
         rel_path = os.path.relpath(root, mod_path)
         for file in files:
             if file.lower().endswith(".json"):
