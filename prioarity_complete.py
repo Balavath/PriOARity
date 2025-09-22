@@ -190,6 +190,59 @@ def find_mod_folder_by_source(staging_mods_dir, source_name):
             return c
     return None
 
+def manual_order_window(selected_sources):
+    layout = [
+        [sg.Text("Manual reordering of selected mods:", font=("Default", 12, "bold"))],
+        [
+            sg.Listbox(
+                values=selected_sources,
+                size=(80, 25),
+                key="LIST",
+                select_mode=sg.LISTBOX_SELECT_MODE_SINGLE,
+                enable_events=True
+            ),
+            sg.Column([
+                [sg.Button("↑ Up", size=(10,1))],
+                [sg.Button("↓ Down", size=(10,1))],
+                [sg.Button("⏫ Top", size=(10,1))],
+                [sg.Button("⏬ Bottom", size=(10,1))],
+                [sg.Text("")],
+                [sg.Button("OK", button_color=("white", "green"), size=(10,1))],
+                [sg.Button("Cancel", size=(10,1))]
+            ], element_justification="center", vertical_alignment="top", pad=(10,0))
+        ]
+    ]
+
+    win = sg.Window("Manual order", layout, modal=True, resizable=True)
+
+    mods = selected_sources[:]
+    while True:
+        event, values = win.read()
+        if event in (sg.WIN_CLOSED, "Cancel"):
+            mods = None
+            break
+        idxs = values.get("LIST", [])
+        if not idxs:
+            continue
+        cur = idxs[0]
+        i = mods.index(cur)
+
+        if event == "↑ Up" and i > 0:
+            mods[i-1], mods[i] = mods[i], mods[i-1]
+        elif event == "↓ Down" and i < len(mods)-1:
+            mods[i+1], mods[i] = mods[i], mods[i+1]
+        elif event == "⏫ Top":
+            mods.insert(0, mods.pop(i))
+        elif event == "⏬ Bottom":
+            mods.append(mods.pop(i))
+        elif event == "OK":
+            break
+
+        win["LIST"].update(mods, set_to_index=[mods.index(cur)])
+    win.close()
+    return mods
+
+
 # ==== UI helpers ====
 
 def append_log(window, text):
@@ -292,7 +345,7 @@ def build_common_ui(title="PriOARity", input_label="Profile / Deployment", folde
             [sg.Text("Output path:", size=(46,1)),
              sg.InputText(key="OUTPUT_DIR", size=(INPUT_WIDTH,1)), sg.FolderBrowse("Browse")],
             [sg.Text("Start priority:", size=(46,1)), sg.InputText("1", key="START_PRIORITY", size=(10,1))],
-            [sg.Button("Load mods", size=(12,1)), sg.Button("Check", size=(10,1)), sg.Button("Run", button_color=("white","green"), size=(10,1))]
+            [sg.Button("Load mods", size=(12,1)), sg.Button("Check", size=(10,1)), sg.Button("Run", button_color=("white","green"), size=(10,1)),sg.Checkbox("Manual order", key="MANUAL_ORDER", default=False)],
             # , sg.Button("Back", size=(10,1)), sg.Button("Exit", size=(8,1))]
         ], pad=(8,8), expand_x=True)],
         [sg.Frame("Detected OAR mods (table):", [
@@ -464,7 +517,11 @@ def run_mo2_mode():
             for i in selected_rows:
                 if i < len(display_sources):
                     selected_mods.append(display_sources[i])
-
+            if values.get("MANUAL_ORDER"):
+                new_order = manual_order_window(selected_mods)
+                if new_order is None:  # cancel
+                    continue
+                selected_mods = new_order
             out_root = os.path.join(output_dir, "PriOARity_Output")
             os.makedirs(out_root, exist_ok=True)
 
@@ -718,6 +775,12 @@ def run_vortex_mode():
             for i in selected_rows:
                 if i < len(display_sources):
                     selected_sources.append(display_sources[i])
+                    
+            if values.get("MANUAL_ORDER"):
+                new_order = manual_order_window(selected_sources)
+                if new_order is None:  # cancel
+                    continue
+                selected_sources = new_order
 
             # map sources -> folders
             selected_mapped_folders = []
